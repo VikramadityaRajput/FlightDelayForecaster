@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# Data & artifacts (too large / reproducible)
+data/
+models/
+
+# SAM / AWS
+.aws-sam/
+samconfig.toml
+.env
+

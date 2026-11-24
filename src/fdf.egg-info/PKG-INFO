@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: fdf
+Version: 0.1.0
+Summary: Serverless Flight Delay Forecaster
+Requires-Python: >=3.12
