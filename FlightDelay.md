@@ -7,7 +7,7 @@
 - **Workflow:** Execute one day's milestone at a time (Section 7). Verify all acceptance criteria before moving to the next day.
 - **Division of Labor (learning project):**
   - **Developer writes:** all core data-science / ML code (EDA, cleaning, weather join, feature engineering, splitting, training, evaluation, inference feature logic).
-  - **Agent provides:** guidance, hints, and code reviews for the above — *not* finished solutions unless explicitly asked. Agent may write setup/boilerplate (env, configs, Dockerfiles, `template.yaml`, IAM, CI) and must explain it.
+  - **Agent provides:** guidance, hints, and code reviews for the above — *not* finished solutions. Agent may write setup/boilerplate (env, configs, Dockerfiles, `template.yaml`, IAM, CI) and must explain it.
 - **Budget:** Hard cap of **$10 total AWS spend**. AWS Budgets alerts at $1 and $5 must exist before any deploy.
 
 ---
