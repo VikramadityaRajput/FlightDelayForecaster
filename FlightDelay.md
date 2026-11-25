@@ -58,8 +58,9 @@ flowchart LR
 - **Live Weather:** Open-Meteo **Forecast** API (same variables).
 - **Stretch only:** OpenSky Network API (requires OAuth2 credentials) for a live-traffic dashboard. It provides aircraft positions only — no schedules, carriers, or delay labels — so it is **not** a model input.
 
-### Target Variable
+### Target Variables
 - `is_delayed`: Binary (`1` if `ArrDelayMinutes >= 15`, else `0`).
+- `target_delay_min`: Continuous (`ArrDelayMinutes`, kept strictly as a regression target—never as a feature).
 - Cancelled and diverted flights are **excluded** (no arrival delay defined). Record how many were dropped.
 
 ### Leakage Blocklist (never use as features)
@@ -84,8 +85,9 @@ flowchart LR
 - **Splitting Strategy:** Strict **chronological split** by scheduled departure (first 70% train, next 15% validation, final 15% test). Random `train_test_split` is prohibited. Priors and any fitted statistics use the train split only.
 - **Preprocessing:** `scikit-learn` `ColumnTransformer` + `Pipeline` so transformations are bundled with the model and identical at training and inference time. Unknown categories must not crash inference (`handle_unknown="ignore"` or equivalent).
 - **Models:**
-  1. **Baseline:** `LogisticRegression(class_weight="balanced")` with one-hot categoricals + scaled numerics.
-  2. **Primary:** `LGBMClassifier` with class imbalance handling (`scale_pos_weight` or `is_unbalance=True`). Tune on validation only.
+  1. **Classifier Baseline:** `LogisticRegression(class_weight="balanced")` with one-hot categoricals + scaled numerics.
+  2. **Classifier Primary:** `LGBMClassifier` with class imbalance handling (`scale_pos_weight` or `is_unbalance=True`). Tune on validation only.
+  3. **Regressor (exact delay minutes):** `Ridge` baseline vs `LGBMRegressor` on `target_delay_min` (evaluated on MAE and RMSE on the held-out test set).
 - **Decision Threshold:** Chosen on the **validation** set (maximize F1), then frozen and applied to test.
 - **Experiments:**
   - **A (production):** LR vs LightGBM on production features.
