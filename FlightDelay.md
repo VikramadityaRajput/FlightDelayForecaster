@@ -120,6 +120,7 @@ flowchart LR
 {
   "delay_probability": 0.37,
   "is_delayed": true,
+  "estimated_delay_min": 14.2,
   "threshold": 0.31,
   "model_version": "2026-11-28-lgbm-v1",
   "weather_source": "forecast",
@@ -135,7 +136,7 @@ flowchart LR
 | `ArtifactsBucket` (S3) | Block all public access, SSE-S3, lifecycle: `raw/` expires after 30 days |
 | `IngestFunction` | Python 3.12 zip, 256 MB, 60s timeout, EventBridge `rate(15 minutes)` |
 | `PredictFunction` | Container image (`public.ecr.aws/lambda/python:3.12` base), 1024 MB, 10s timeout, arm64 |
-| `PredictApi` | API Gateway **HTTP API**, `POST /predict`, throttling (burst 10, rate 5 rps) |
+| `PredictApi` | API Gateway **HTTP API**, `POST /predict`, CORS enabled (for the public web UI), throttling (burst 10, rate 5 rps) |
 | Log groups | 14-day retention for both functions |
 | IAM | `IngestFunction`: `s3:PutObject` on `raw/*` and `features/*` only. `PredictFunction`: `s3:GetObject` on `features/*` and `models/*` only. No `*` resources. |
 | Config | `MODEL_VERSION`, `BUCKET_NAME` passed as env vars |
@@ -196,10 +197,11 @@ template.yaml
 - Dockerfile; run locally with the Lambda Runtime Interface Emulator.
 - **Acceptance:** `tests/test_parity.py` — handler output equals offline pipeline prediction for 20 test-set rows; bad inputs return 400/422; image < 500 MB.
 
-### Day 7 — Deploy to AWS
+### Day 7 — Deploy to AWS & Public Demo UI
 - Install AWS CLI + SAM; create IAM user/profile (no root keys); set up AWS Budgets.
 - `IngestLambda` + `template.yaml`; `sam build && sam deploy --guided`; upload model artifacts.
-- **Acceptance:** `curl` to the live endpoint returns a prediction; `latest_weather.json` updates every 15 min; p95 warm latency < 500ms over 50 requests; CloudWatch shows structured logs; IAM policies have no wildcard resources; cost dashboard shows ~$0.
+- Build a clean static `web/index.html` (hosted free on **GitHub Pages**) where anyone can pick origin, destination, carrier, and departure time to call `POST /predict` and see `is_delayed` (1/0), `delay_probability`, and `estimated_delay_min`.
+- **Acceptance:** `curl` to the live endpoint returns a prediction; `latest_weather.json` updates every 15 min; p95 warm latency < 500ms over 50 requests; CloudWatch shows structured logs; IAM policies have no wildcard resources; cost dashboard shows ~$0; GitHub Pages link works end-to-end.
 
 ### Stretch Goals
 - GitHub Actions: lint + tests on push. • Model monitoring: log predictions, then join to actual BTS outcomes monthly. • OpenSky live-traffic page. • SHAP explanations in the response.
@@ -210,6 +212,7 @@ template.yaml
 {
   "delay_probability": 0.37,
   "is_delayed": true,
+  "estimated_delay_min": 14.2,
   "threshold": 0.31,
   "model_version": "2026-11-28-lgbm-v1",
   "weather_source": "forecast",
@@ -225,7 +228,7 @@ template.yaml
 | `ArtifactsBucket` (S3) | Block all public access, SSE-S3, lifecycle: `raw/` expires after 30 days |
 | `IngestFunction` | Python 3.12 zip, 256 MB, 60s timeout, EventBridge `rate(15 minutes)` |
 | `PredictFunction` | Container image (`public.ecr.aws/lambda/python:3.12` base), 1024 MB, 10s timeout, arm64 |
-| `PredictApi` | API Gateway **HTTP API**, `POST /predict`, throttling (burst 10, rate 5 rps) |
+| `PredictApi` | API Gateway **HTTP API**, `POST /predict`, CORS enabled (for the public web UI), throttling (burst 10, rate 5 rps) |
 | Log groups | 14-day retention for both functions |
 | IAM | `IngestFunction`: `s3:PutObject` on `raw/*` and `features/*` only. `PredictFunction`: `s3:GetObject` on `features/*` and `models/*` only. No `*` resources. |
 | Config | `MODEL_VERSION`, `BUCKET_NAME` passed as env vars |
@@ -286,10 +289,11 @@ template.yaml
 - Dockerfile; run locally with the Lambda Runtime Interface Emulator.
 - **Acceptance:** `tests/test_parity.py` — handler output equals offline pipeline prediction for 20 test-set rows; bad inputs return 400/422; image < 500 MB.
 
-### Day 7 — Deploy to AWS
+### Day 7 — Deploy to AWS & Public Demo UI
 - Install AWS CLI + SAM; create IAM user/profile (no root keys); set up AWS Budgets.
 - `IngestLambda` + `template.yaml`; `sam build && sam deploy --guided`; upload model artifacts.
-- **Acceptance:** `curl` to the live endpoint returns a prediction; `latest_weather.json` updates every 15 min; p95 warm latency < 500ms over 50 requests; CloudWatch shows structured logs; IAM policies have no wildcard resources; cost dashboard shows ~$0.
+- Build a clean static `web/index.html` (hosted free on **GitHub Pages**) where anyone can pick origin, destination, carrier, and departure time to call `POST /predict` and see `is_delayed` (1/0), `delay_probability`, and `estimated_delay_min`.
+- **Acceptance:** `curl` to the live endpoint returns a prediction; `latest_weather.json` updates every 15 min; p95 warm latency < 500ms over 50 requests; CloudWatch shows structured logs; IAM policies have no wildcard resources; cost dashboard shows ~$0; GitHub Pages link works end-to-end.
 
 ### Stretch Goals
 - GitHub Actions: lint + tests on push. • Model monitoring: log predictions, then join to actual BTS outcomes monthly. • OpenSky live-traffic page. • SHAP explanations in the response.
