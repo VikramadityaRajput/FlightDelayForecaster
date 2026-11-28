@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless Flight Delay Forecaster
+
+Parameters:
+  ModelVersion:
+    Type: String
+    Default: 2026-11-27-lgbm-v2
+
+Resources:
+  ArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireRawWeather
+            Prefix: raw/
+            Status: Enabled
+            ExpirationInDays: 30
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Runtime: python3.12
+      CodeUri: lambdas/ingest/
+      Handler: handler.lambda_handler
+      MemorySize: 256
+      Timeout: 60
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ArtifactsBucket
+      Events:
+        Every15Minutes:
+          Type: Schedule
+          Properties:
+            Schedule: rate(15 minutes)
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource:
+                - !Sub arn:aws:s3:::${ArtifactsBucket}/raw/*
+                - !Sub arn:aws:s3:::${ArtifactsBucket}/features/*
+
+  IngestLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${IngestFunction}
+      RetentionInDays: 14
+
+  PredictApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowMethods:
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 10
+        ThrottlingRateLimit: 5
+
+  PredictFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      Architectures:
+        - arm64
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref ArtifactsBucket
+          MODEL_VERSION: !Ref ModelVersion
+      Events:
+        PredictEndpoint:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref PredictApi
+            Path: /predict
+            Method: POST
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+              Resource:
+                - !Sub arn:aws:s3:::${ArtifactsBucket}/features/*
+                - !Sub arn:aws:s3:::${ArtifactsBucket}/models/*
+    Metadata:
+      Dockerfile: lambdas/predict/Dockerfile
+      DockerContext: .
+
+  PredictLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${PredictFunction}
+      RetentionInDays: 14
+
+Outputs:
+  ApiEndpoint:
+    Description: Predict HTTP API endpoint
+    Value: !Sub https://${PredictApi}.execute-api.${AWS::Region}.amazonaws.com/predict
+  BucketName:
+    Description: Artifacts S3 bucket
+    Value: !Ref ArtifactsBucket

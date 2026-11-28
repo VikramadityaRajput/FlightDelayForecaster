@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Flight Delay Forecaster</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #131a2e;
+      --border: #253052;
+      --text: #e6ebf5;
+      --muted: #93a1c2;
+      --accent: #4f8cff;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 2rem 1rem;
+    }
+    .wrap { max-width: 720px; margin: 0 auto; }
+    h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
+    .sub { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
+    @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+    label { display: block; font-size: 0.82rem; color: var(--muted); margin-bottom: 0.3rem; }
+    input, select {
+      width: 100%;
+      padding: 0.6rem 0.7rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0d1324;
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .full { grid-column: 1 / -1; }
+    button {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .result { display: none; }
+    .badge {
+      display: inline-block;
+      padding: 0.25rem 0.65rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
+    .badge.ontime { background: rgba(34, 197, 94, 0.18); color: var(--ok); }
+    .badge.moderate { background: rgba(245, 158, 11, 0.18); color: var(--warn); }
+    .badge.delayed { background: rgba(239, 68, 68, 0.18); color: var(--bad); }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-top: 1rem; }
+    .metric { background: #0d1324; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+    .metric .k { font-size: 0.78rem; color: var(--muted); }
+    .metric .v { font-size: 1.35rem; font-weight: 700; margin-top: 0.2rem; }
+    .buckets { margin-top: 1rem; display: grid; gap: 0.45rem; }
+    .bucket-row { display: grid; grid-template-columns: 88px 1fr 48px; align-items: center; gap: 0.6rem; font-size: 0.85rem; }
+    .bar-bg { height: 10px; background: #0d1324; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 999px; background: var(--accent); }
+    .bar-fill.ontime { background: var(--ok); }
+    .bar-fill.mild { background: var(--warn); }
+    .bar-fill.mod { background: #f97316; }
+    .bar-fill.sev { background: var(--bad); }
+    .meta { margin-top: 0.85rem; font-size: 0.82rem; color: var(--muted); }
+    .error { color: var(--bad); font-size: 0.9rem; margin-top: 0.75rem; display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Flight Delay Forecaster</h1>
+    <p class="sub">Predict arrival delay (&ge; 15 min) across 15 major US hubs using schedule &amp; Open-Meteo forecasts.</p>
+
+    <form id="predict-form" class="card">
+      <div class="grid">
+        <div class="full">
+          <label for="apiUrl">Predict API Endpoint (POST /predict)</label>
+          <input id="apiUrl" type="url" placeholder="https://xxxxxxxx.execute-api.us-east-1.amazonaws.com/predict" required />
+        </div>
+        <div>
+          <label for="origin">Origin Hub</label>
+          <select id="origin"></select>
+        </div>
+        <div>
+          <label for="dest">Destination Hub</label>
+          <select id="dest"></select>
+        </div>
+        <div>
+          <label for="carrier">Carrier</label>
+          <select id="carrier">
+            <option value="UA">UA (United)</option>
+            <option value="AA">AA (American)</option>
+            <option value="DL">DL (Delta)</option>
+            <option value="WN">WN (Southwest)</option>
+            <option value="B6">B6 (JetBlue)</option>
+            <option value="AS">AS (Alaska)</option>
+            <option value="NK">NK (Spirit)</option>
+            <option value="F9">F9 (Frontier)</option>
+          </select>
+        </div>
+        <div>
+          <label for="depLocal">Scheduled Departure (Your Local Time)</label>
+          <input id="depLocal" type="datetime-local" required />
+        </div>
+        <div>
+          <label for="duration">Scheduled Duration (min)</label>
+          <input id="duration" type="number" min="15" max="720" value="135" required />
+        </div>
+        <div>
+          <label for="distance">Distance (miles)</label>
+          <input id="distance" type="number" min="50" max="5000" value="719" required />
+        </div>
+        <div class="full">
+          <button id="submitBtn" type="submit">Predict Delay</button>
+        </div>
+      </div>
+      <div id="errorBox" class="error"></div>
+    </form>
+
+    <div id="resultCard" class="card result">
+      <span id="statusBadge" class="badge"></span>
+      <div class="metrics">
+        <div class="metric"><div class="k">Delay Probability</div><div id="probVal" class="v">-</div></div>
+        <div class="metric"><div class="k">Predicted Bucket</div><div id="bucketVal" class="v">-</div></div>
+        <div class="metric"><div class="k">If Delayed (p50 / p90)</div><div id="rangeVal" class="v">-</div></div>
+      </div>
+      <div id="bucketsList" class="buckets"></div>
+      <div id="metaLine" class="meta"></div>
+    </div>
+  </div>
+
+  <script>
+    const HUBS = [
+      ["ORD", "Chicago O'Hare"], ["EWR", "Newark Liberty"], ["ATL", "Atlanta"],
+      ["DFW", "Dallas/Fort Worth"], ["DEN", "Denver"], ["LAX", "Los Angeles"],
+      ["JFK", "New York JFK"], ["SFO", "San Francisco"], ["SEA", "Seattle"],
+      ["LAS", "Las Vegas"], ["MCO", "Orlando"], ["CLT", "Charlotte"],
+      ["PHX", "Phoenix"], ["MIA", "Miami"], ["IAH", "Houston"]
+    ];
+
+    const originEl = document.getElementById("origin");
+    const destEl = document.getElementById("dest");
+    for (const [code, name] of HUBS) {
+      originEl.add(new Option(`${code} - ${name}`, code));
+      destEl.add(new Option(`${code} - ${name}`, code));
+    }
+    originEl.value = "ORD";
+    destEl.value = "EWR";
+
+    const DEFAULT_API_URL = "https://fdnku2mgoi.execute-api.us-east-1.amazonaws.com/predict";
+    const apiInput = document.getElementById("apiUrl");
+    apiInput.value = localStorage.getItem("fdf_api_url") || DEFAULT_API_URL;
+
+    const depDefault = new Date(Date.now() + 3 * 3600 * 1000);
+    depDefault.setMinutes(0, 0, 0);
+    const pad = (n) => String(n).padStart(2, "0");
+    document.getElementById("depLocal").value =
+      `${depDefault.getFullYear()}-${pad(depDefault.getMonth() + 1)}-${pad(depDefault.getDate())}T${pad(depDefault.getHours())}:${pad(depDefault.getMinutes())}`;
+
+    document.getElementById("predict-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("submitBtn");
+      const errBox = document.getElementById("errorBox");
+      const resCard = document.getElementById("resultCard");
+      errBox.style.display = "none";
+
+      const url = apiInput.value.trim();
+      localStorage.setItem("fdf_api_url", url);
+
+      const payload = {
+        origin_airport: originEl.value,
+        dest_airport: destEl.value,
+        carrier: document.getElementById("carrier").value,
+        scheduled_dep_utc: new Date(document.getElementById("depLocal").value).toISOString(),
+        scheduled_duration_min: Number(document.getElementById("duration").value),
+        distance_miles: Number(document.getElementById("distance").value),
+      };
+
+      btn.disabled = true;
+      btn.textContent = "Predicting...";
+      try {
+        const resp = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+
+        const badge = document.getElementById("statusBadge");
+        const bucket = data.predicted_bucket || (data.is_delayed ? "delayed" : "on_time");
+        const bucketLabel = bucket === "on_time" ? "On Time (< 15 min)" : `Likely Delayed: ${bucket}`;
+        badge.textContent = bucketLabel;
+        badge.className = `badge ${bucket === "on_time" ? "ontime" : (bucket === "15-45 min" ? "moderate" : "delayed")}`;
+
+        document.getElementById("probVal").textContent = `${(data.delay_probability * 100).toFixed(1)}%`;
+        document.getElementById("bucketVal").textContent = bucket === "on_time" ? "On Time" : bucket;
+        const p50 = data.delay_if_delayed_min ?? data.estimated_delay_min;
+        const p90 = data.delay_if_delayed_p90_min;
+        document.getElementById("rangeVal").textContent = p90 != null ? `~${Math.round(p50)} / ${Math.round(p90)}m` : `${p50.toFixed(1)}m`;
+
+        const bucketsEl = document.getElementById("bucketsList");
+        bucketsEl.innerHTML = "";
+        const rows = [
+          ["on_time", "On Time", "ontime"],
+          ["15-45 min", "15-45 min", "mild"],
+          ["45-120 min", "45-120 min", "mod"],
+          ["120+ min", "120+ min", "sev"],
+        ];
+        if (data.bucket_probabilities) {
+          for (const [key, label, cls] of rows) {
+            if (key in data.bucket_probabilities) {
+              const pct = (data.bucket_probabilities[key] * 100).toFixed(1);
+              const row = document.createElement("div");
+              row.className = "bucket-row";
+              row.innerHTML = `<span>${label}</span><div class="bar-bg"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div><span>${pct}%</span>`;
+              bucketsEl.appendChild(row);
+            }
+          }
+        }
+
+        document.getElementById("metaLine").textContent =
+          `Model: ${data.model_version} · Weather: ${data.weather_source} · Threshold: ${data.threshold} · Latency: ${data.latency_ms} ms` +
+          (data.warnings?.length ? ` · Warnings: ${data.warnings.join("; ")}` : "");
+        resCard.style.display = "block";
+      } catch (err) {
+        resCard.style.display = "none";
+        errBox.textContent = err.message;
+        errBox.style.display = "block";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Predict Delay";
+      }
+    });
+  </script>
+</body>
+</html>

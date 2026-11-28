@@ -18,10 +18,13 @@ from lightgbm import LGBMClassifier, LGBMRegressor  # noqa: F401
 from sklearn.compose import ColumnTransformer  # noqa: F401
 from sklearn.linear_model import LogisticRegression, Ridge  # noqa: F401
 from sklearn.metrics import (  # noqa: F401
+    accuracy_score,
     average_precision_score,
     brier_score_loss,
     f1_score,
+    log_loss,
     mean_absolute_error,
+    mean_pinball_loss,
     precision_recall_curve,
     precision_score,
     recall_score,
@@ -47,11 +50,18 @@ MODELS_DIR = ROOT / "models"
 
 CLS_TARGET = "is_delayed"
 REG_TARGET = "target_delay_min"
+SEVERITY_BUCKETS = ["15-45 min", "45-120 min", "120+ min"]
+SEVERITY_EDGES = [45.0, 120.0]  # <45 -> 0, [45,120) -> 1, >=120 -> 2
 PRIOR_FEATURES = [
     "origin_hour_delay_rate_prior",
     "carrier_delay_rate_prior",
     "route_delay_rate_prior",
 ]
+
+
+def to_severity_bucket(delay_min: pd.Series) -> np.ndarray:
+    """Map delayed flight minutes (>=15) to 0 (15-45), 1 (45-120), 2 (120+)."""
+    return np.digitize(delay_min.to_numpy(dtype=float), SEVERITY_EDGES)
 
 
 
@@ -119,13 +129,13 @@ def build_classifiers(categorical: list[str], numeric: list[str], pos_weight: fl
     }
 
 
-def build_regressors(categorical: list[str], numeric: list[str]) -> dict[str, Pipeline]:
-    """Return {"ridge": Pipeline, "lgbm": Pipeline} predicting delay minutes."""
+def build_severity_classifiers(categorical: list[str], numeric: list[str]) -> dict[str, Pipeline]:
+    """Stage 2 multiclass classifiers predicting delay bucket given is_delayed == 1."""
     return {
-        "ridge": Pipeline(
+        "logreg": Pipeline(
             [
                 ("prep", make_linear_preprocessor(categorical, numeric)),
-                ("model", Ridge(alpha=1.0)),
+                ("model", LogisticRegression(max_iter=1000)),
             ]
         ),
         "lgbm": Pipeline(
@@ -133,9 +143,50 @@ def build_regressors(categorical: list[str], numeric: list[str]) -> dict[str, Pi
                 ("prep", make_tree_preprocessor(categorical, numeric)),
                 (
                     "model",
+                    LGBMClassifier(
+                        objective="multiclass",
+                        num_class=len(SEVERITY_BUCKETS),
+                        n_estimators=300,
+                        learning_rate=0.05,
+                        num_leaves=31,
+                        random_state=42,
+                        verbose=-1,
+                    ),
+                ),
+            ]
+        ),
+    }
+
+
+def build_conditional_regressors(categorical: list[str], numeric: list[str]) -> dict[str, Pipeline]:
+    """Stage 2 quantile regressors on log1p(delay_min) for delayed flights only."""
+    return {
+        "p50": Pipeline(
+            [
+                ("prep", make_tree_preprocessor(categorical, numeric)),
+                (
+                    "model",
                     LGBMRegressor(
-                        objective="l1",
-                        n_estimators=400,
+                        objective="quantile",
+                        alpha=0.5,
+                        n_estimators=300,
+                        learning_rate=0.05,
+                        num_leaves=31,
+                        random_state=42,
+                        verbose=-1,
+                    ),
+                ),
+            ]
+        ),
+        "p90": Pipeline(
+            [
+                ("prep", make_tree_preprocessor(categorical, numeric)),
+                (
+                    "model",
+                    LGBMRegressor(
+                        objective="quantile",
+                        alpha=0.9,
+                        n_estimators=300,
                         learning_rate=0.05,
                         num_leaves=31,
                         random_state=42,
@@ -168,12 +219,23 @@ def classification_metrics(y_true: pd.Series, proba: np.ndarray, threshold: floa
     }
 
 
-def regression_metrics(y_true: pd.Series, pred: np.ndarray) -> dict:
-    """Compute delay-minute regression error metrics."""
+def regression_metrics(y_true: pd.Series, pred: np.ndarray, alpha: float = 0.5) -> dict:
+    """Compute delay-minute regression error metrics on delayed flights."""
     return {
         "mae": round(float(mean_absolute_error(y_true, pred)), 2),
         "rmse": round(float(root_mean_squared_error(y_true, pred)), 2),
         "median_ae": round(float(np.median(np.abs(y_true - pred))), 2),
+        "pinball": round(float(mean_pinball_loss(y_true, pred, alpha=alpha)), 2),
+    }
+
+
+def severity_metrics(y_true: np.ndarray, proba: np.ndarray) -> dict:
+    """Compute Stage 2 multiclass bucket metrics on delayed flights."""
+    pred = np.argmax(proba, axis=1)
+    return {
+        "log_loss": round(float(log_loss(y_true, proba, labels=list(range(len(SEVERITY_BUCKETS))))), 4),
+        "accuracy": round(float(accuracy_score(y_true, pred)), 4),
+        "macro_f1": round(float(f1_score(y_true, pred, average="macro", zero_division=0)), 4),
     }
 
 
@@ -181,13 +243,14 @@ def regression_metrics(y_true: pd.Series, pred: np.ndarray) -> dict:
 
 
 def run(train, val, test, categorical, numeric, verbose=True) -> dict:
-    """Fit all models on train, tune threshold on val, report val + test metrics."""
-    results = {"classifiers": {}, "regressors": {}}
+    """Fit Stage 1 (delay yes/no) and Stage 2 (conditional severity buckets + quantiles)."""
+    results = {"classifiers": {}, "severity_buckets": {}, "conditional_regressors": {}}
     fitted = {}
 
     pos_weight = float((train[CLS_TARGET] == 0).sum() / (train[CLS_TARGET] == 1).sum())
     features = categorical + numeric
 
+    # Stage 1: binary delay classifier on all flights
     for name, pipe in build_classifiers(categorical, numeric, pos_weight).items():
         pipe.fit(train[features], train[CLS_TARGET])
         val_proba = pipe.predict_proba(val[features])[:, 1]
@@ -200,17 +263,44 @@ def run(train, val, test, categorical, numeric, verbose=True) -> dict:
         }
         fitted[f"cls_{name}"] = pipe
 
-    # Naive regression baseline: always predict the training median delay.
-    median_pred = float(train[REG_TARGET].median())
-    results["regressors"]["predict_median"] = {
-        "val": regression_metrics(val[REG_TARGET], np.full(len(val), median_pred)),
-        "test": regression_metrics(test[REG_TARGET], np.full(len(test), median_pred)),
+    # Stage 2: train and evaluate ONLY on delayed flights (is_delayed == 1)
+    tr_del = train[train[CLS_TARGET] == 1]
+    va_del = val[val[CLS_TARGET] == 1]
+    te_del = test[test[CLS_TARGET] == 1]
+
+    y_tr_sev = to_severity_bucket(tr_del[REG_TARGET])
+    y_va_sev = to_severity_bucket(va_del[REG_TARGET])
+    y_te_sev = to_severity_bucket(te_del[REG_TARGET])
+
+    # Naive bucket baseline: always output training class frequencies
+    class_priors = np.bincount(y_tr_sev, minlength=len(SEVERITY_BUCKETS)) / len(y_tr_sev)
+    results["severity_buckets"]["prior_baseline"] = {
+        "val": severity_metrics(y_va_sev, np.tile(class_priors, (len(va_del), 1))),
+        "test": severity_metrics(y_te_sev, np.tile(class_priors, (len(te_del), 1))),
     }
-    for name, pipe in build_regressors(categorical, numeric).items():
-        pipe.fit(train[features], train[REG_TARGET])
-        results["regressors"][name] = {
-            "val": regression_metrics(val[REG_TARGET], np.clip(pipe.predict(val[features]), 0, None)),
-            "test": regression_metrics(test[REG_TARGET], np.clip(pipe.predict(test[features]), 0, None)),
+    for name, pipe in build_severity_classifiers(categorical, numeric).items():
+        pipe.fit(tr_del[features], y_tr_sev)
+        results["severity_buckets"][name] = {
+            "val": severity_metrics(y_va_sev, pipe.predict_proba(va_del[features])),
+            "test": severity_metrics(y_te_sev, pipe.predict_proba(te_del[features])),
+        }
+        fitted[f"sev_{name}"] = pipe
+
+    # Naive conditional regression baseline: training median of delayed flights
+    delayed_median = float(tr_del[REG_TARGET].median())
+    results["conditional_regressors"]["predict_delayed_median"] = {
+        "val": regression_metrics(va_del[REG_TARGET], np.full(len(va_del), delayed_median), alpha=0.5),
+        "test": regression_metrics(te_del[REG_TARGET], np.full(len(te_del), delayed_median), alpha=0.5),
+    }
+    y_tr_log = np.log1p(tr_del[REG_TARGET].to_numpy(dtype=float))
+    for name, pipe in build_conditional_regressors(categorical, numeric).items():
+        alpha = 0.5 if name == "p50" else 0.9
+        pipe.fit(tr_del[features], y_tr_log)
+        va_pred = np.clip(np.expm1(pipe.predict(va_del[features])), 15.0, None)
+        te_pred = np.clip(np.expm1(pipe.predict(te_del[features])), 15.0, None)
+        results["conditional_regressors"][name] = {
+            "val": regression_metrics(va_del[REG_TARGET], va_pred, alpha=alpha),
+            "test": regression_metrics(te_del[REG_TARGET], te_pred, alpha=alpha),
         }
         fitted[f"reg_{name}"] = pipe
 
@@ -224,11 +314,23 @@ def print_results(results: dict) -> None:
     for name, r in results["classifiers"].items():
         for split in ("val", "test"):
             rows.append({"model": name, "split": split, **r[split], "threshold": r["threshold"]})
-    print("\n=== Classification (is_delayed) ===")
+    print("\n=== Stage 1: Classification (is_delayed) ===")
     print(pd.DataFrame(rows).to_string(index=False))
 
-    rows = [{"model": n, "split": s, **r[s]} for n, r in results["regressors"].items() for s in ("val", "test")]
-    print("\n=== Regression (target_delay_min) ===")
+    rows = [
+        {"model": n, "split": s, **r[s]}
+        for n, r in results["severity_buckets"].items()
+        for s in ("val", "test")
+    ]
+    print("\n=== Stage 2a: Severity Buckets (delayed flights only) ===")
+    print(pd.DataFrame(rows).to_string(index=False))
+
+    rows = [
+        {"model": n, "split": s, **r[s]}
+        for n, r in results["conditional_regressors"].items()
+        for s in ("val", "test")
+    ]
+    print("\n=== Stage 2b: Conditional Quantile Regression (delayed flights only) ===")
     print(pd.DataFrame(rows).to_string(index=False))
 
 
@@ -263,14 +365,19 @@ def run_ablation(train, val, test) -> pd.DataFrame:
 
 
 def save_artifacts(out: dict, train: pd.DataFrame, priors: dict, numeric: list[str]) -> Path:
-    version = f"{date.today().isoformat()}-lgbm-v1"
+    version = f"{date.today().isoformat()}-lgbm-v2"
     out_dir = MODELS_DIR / version
     out_dir.mkdir(parents=True, exist_ok=True)
 
     results = out["results"]
     threshold = results["classifiers"]["lgbm"]["threshold"]
     joblib.dump(
-        {"classifier": out["fitted"]["cls_lgbm"], "regressor": out["fitted"]["reg_lgbm"]},
+        {
+            "classifier": out["fitted"]["cls_lgbm"],
+            "severity_classifier": out["fitted"]["sev_lgbm"],
+            "regressor_p50": out["fitted"]["reg_p50"],
+            "regressor_p90": out["fitted"]["reg_p90"],
+        },
         out_dir / "model.joblib",
     )
     (out_dir / "metrics.json").write_text(json.dumps(results, indent=2))
@@ -280,6 +387,7 @@ def save_artifacts(out: dict, train: pd.DataFrame, priors: dict, numeric: list[s
         "categorical_features": CATEGORICAL_FEATURES,
         "numeric_features": numeric,
         "threshold": threshold,
+        "severity_buckets": SEVERITY_BUCKETS,
         "priors": priors,
         "hubs": sorted(pd.read_csv(AIRPORTS_CSV)["code"]),
         "train_date_range": [str(train["scheduled_dep_utc"].min()), str(train["scheduled_dep_utc"].max())],
