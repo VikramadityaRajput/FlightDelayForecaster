@@ -22,11 +22,25 @@
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
-      padding: 2rem 1rem;
+      padding: 2rem 1rem 3rem;
     }
     .wrap { max-width: 720px; margin: 0 auto; }
-    h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
-    .sub { color: var(--muted); margin: 0 0 1.5rem; font-size: 0.95rem; }
+    h1 { margin: 0 0 0.3rem; font-size: 1.75rem; }
+    .sub { color: var(--muted); margin: 0 0 1.25rem; font-size: 0.95rem; line-height: 1.45; }
+    .presets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
+    .presets span { font-size: 0.82rem; color: var(--muted); }
+    .chip {
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #0d1324;
+      color: var(--text);
+      font-size: 0.82rem;
+      cursor: pointer;
+      width: auto;
+      font-weight: 500;
+    }
+    .chip:hover { border-color: var(--accent); }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -46,10 +60,11 @@
       color: var(--text);
       font-size: 0.95rem;
     }
+    .hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
     .full { grid-column: 1 / -1; }
-    button {
+    button.primary {
       width: 100%;
-      padding: 0.75rem 1rem;
+      padding: 0.78rem 1rem;
       border: 0;
       border-radius: 8px;
       background: var(--accent);
@@ -58,45 +73,60 @@
       font-size: 1rem;
       cursor: pointer;
     }
-    button:disabled { opacity: 0.6; cursor: wait; }
+    button.primary:disabled { opacity: 0.65; cursor: wait; }
     .result { display: none; }
     .badge {
       display: inline-block;
-      padding: 0.25rem 0.65rem;
+      padding: 0.28rem 0.7rem;
       border-radius: 999px;
       font-weight: 600;
-      font-size: 0.85rem;
+      font-size: 0.88rem;
     }
     .badge.ontime { background: rgba(34, 197, 94, 0.18); color: var(--ok); }
     .badge.moderate { background: rgba(245, 158, 11, 0.18); color: var(--warn); }
     .badge.delayed { background: rgba(239, 68, 68, 0.18); color: var(--bad); }
     .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin-top: 1rem; }
+    @media (max-width: 540px) { .metrics { grid-template-columns: 1fr; } }
     .metric { background: #0d1324; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
     .metric .k { font-size: 0.78rem; color: var(--muted); }
-    .metric .v { font-size: 1.35rem; font-weight: 700; margin-top: 0.2rem; }
-    .buckets { margin-top: 1rem; display: grid; gap: 0.45rem; }
+    .metric .v { font-size: 1.3rem; font-weight: 700; margin-top: 0.2rem; }
+    .buckets { margin-top: 1rem; display: grid; gap: 0.5rem; }
     .bucket-row { display: grid; grid-template-columns: 88px 1fr 48px; align-items: center; gap: 0.6rem; font-size: 0.85rem; }
     .bar-bg { height: 10px; background: #0d1324; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
-    .bar-fill { height: 100%; border-radius: 999px; background: var(--accent); }
+    .bar-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.3s ease; }
     .bar-fill.ontime { background: var(--ok); }
     .bar-fill.mild { background: var(--warn); }
     .bar-fill.mod { background: #f97316; }
     .bar-fill.sev { background: var(--bad); }
-    .meta { margin-top: 0.85rem; font-size: 0.82rem; color: var(--muted); }
+    .meta { margin-top: 0.9rem; font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
     .error { color: var(--bad); font-size: 0.9rem; margin-top: 0.75rem; display: none; }
+    .status-note { color: var(--muted); font-size: 0.82rem; margin-top: 0.6rem; display: none; text-align: center; }
+    footer {
+      margin-top: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.5;
+      text-align: center;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Flight Delay Forecaster</h1>
-    <p class="sub">Predict arrival delay (&ge; 15 min) across 15 major US hubs using schedule &amp; Open-Meteo forecasts.</p>
+    <p class="sub">Predict arrival delay risk (&ge; 15 min) and severity buckets across 15 major US hubs using schedule, historical priors, and live Open-Meteo forecasts.</p>
+
+    <div class="presets">
+      <span>Try a route:</span>
+      <button type="button" class="chip" data-origin="ORD" data-dest="EWR" data-carrier="UA">ORD &rarr; EWR (UA)</button>
+      <button type="button" class="chip" data-origin="ATL" data-dest="LAX" data-carrier="DL">ATL &rarr; LAX (DL)</button>
+      <button type="button" class="chip" data-origin="SFO" data-dest="JFK" data-carrier="B6">SFO &rarr; JFK (B6)</button>
+      <button type="button" class="chip" data-origin="DFW" data-dest="MIA" data-carrier="AA">DFW &rarr; MIA (AA)</button>
+    </div>
 
     <form id="predict-form" class="card">
       <div class="grid">
-        <div class="full">
-          <label for="apiUrl">Predict API Endpoint (POST /predict)</label>
-          <input id="apiUrl" type="url" placeholder="https://xxxxxxxx.execute-api.us-east-1.amazonaws.com/predict" required />
-        </div>
         <div>
           <label for="origin">Origin Hub</label>
           <select id="origin"></select>
@@ -119,19 +149,23 @@
           </select>
         </div>
         <div>
-          <label for="depLocal">Scheduled Departure (Your Local Time)</label>
+          <label for="depLocal">Scheduled Departure (Local Time)</label>
           <input id="depLocal" type="datetime-local" required />
+          <div class="hint">Live weather covers the next 48 hours.</div>
         </div>
         <div>
-          <label for="duration">Scheduled Duration (min)</label>
-          <input id="duration" type="number" min="15" max="720" value="135" required />
+          <label for="duration">Est. Duration (min)</label>
+          <input id="duration" type="number" min="15" max="720" required />
+          <div class="hint">Auto-estimated from route; editable.</div>
         </div>
         <div>
           <label for="distance">Distance (miles)</label>
-          <input id="distance" type="number" min="50" max="5000" value="719" required />
+          <input id="distance" type="number" min="50" max="5000" required />
+          <div class="hint">Great-circle miles; editable.</div>
         </div>
         <div class="full">
-          <button id="submitBtn" type="submit">Predict Delay</button>
+          <button id="submitBtn" class="primary" type="submit">Predict Delay</button>
+          <div id="statusNote" class="status-note"></div>
         </div>
       </div>
       <div id="errorBox" class="error"></div>
@@ -147,65 +181,146 @@
       <div id="bucketsList" class="buckets"></div>
       <div id="metaLine" class="meta"></div>
     </div>
+
+    <footer>
+      Two-stage LightGBM model trained on Nov&ndash;Mar US BTS hub flights + live Open-Meteo forecasts (refreshed every 15 min).
+      For portfolio &amp; educational use &middot;
+      <a href="https://github.com/VikramadityaRajput/FlightDelayForecaster" target="_blank" rel="noopener">View on GitHub</a>
+    </footer>
   </div>
 
   <script>
+    const API_URL = "https://fdnku2mgoi.execute-api.us-east-1.amazonaws.com/predict";
+
     const HUBS = [
-      ["ORD", "Chicago O'Hare"], ["EWR", "Newark Liberty"], ["ATL", "Atlanta"],
-      ["DFW", "Dallas/Fort Worth"], ["DEN", "Denver"], ["LAX", "Los Angeles"],
-      ["JFK", "New York JFK"], ["SFO", "San Francisco"], ["SEA", "Seattle"],
-      ["LAS", "Las Vegas"], ["MCO", "Orlando"], ["CLT", "Charlotte"],
-      ["PHX", "Phoenix"], ["MIA", "Miami"], ["IAH", "Houston"]
+      ["ATL", "Atlanta", 33.6407, -84.4277],
+      ["CLT", "Charlotte", 35.2144, -80.9473],
+      ["DEN", "Denver", 39.8561, -104.6737],
+      ["DFW", "Dallas/Fort Worth", 32.8998, -97.0403],
+      ["EWR", "Newark Liberty", 40.6895, -74.1745],
+      ["IAH", "Houston", 29.9902, -95.3368],
+      ["JFK", "New York JFK", 40.6413, -73.7781],
+      ["LAS", "Las Vegas", 36.0840, -115.1537],
+      ["LAX", "Los Angeles", 33.9416, -118.4085],
+      ["MCO", "Orlando", 28.4312, -81.3081],
+      ["MIA", "Miami", 25.7959, -80.2870],
+      ["ORD", "Chicago O'Hare", 41.9742, -87.9073],
+      ["PHX", "Phoenix", 33.4342, -112.0116],
+      ["SEA", "Seattle", 47.4502, -122.3088],
+      ["SFO", "San Francisco", 37.6213, -122.3790],
     ];
+    const HUB_MAP = Object.fromEntries(HUBS.map(([c, n, lat, lon]) => [c, { name: n, lat, lon }]));
 
     const originEl = document.getElementById("origin");
     const destEl = document.getElementById("dest");
+    const carrierEl = document.getElementById("carrier");
+    const durationEl = document.getElementById("duration");
+    const distanceEl = document.getElementById("distance");
+    const depEl = document.getElementById("depLocal");
+
     for (const [code, name] of HUBS) {
       originEl.add(new Option(`${code} - ${name}`, code));
       destEl.add(new Option(`${code} - ${name}`, code));
     }
+
+    function haversineMiles(a, b) {
+      const toRad = (d) => (d * Math.PI) / 180;
+      const R = 3958.8;
+      const dLat = toRad(b.lat - a.lat);
+      const dLon = toRad(b.lon - a.lon);
+      const s =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+      return Math.round(2 * R * Math.asin(Math.sqrt(s)));
+    }
+
+    function updateRouteDefaults(changed) {
+      if (originEl.value === destEl.value) {
+        const other = HUBS.find(([c]) => c !== originEl.value)[0];
+        if (changed === "origin") destEl.value = other;
+        else originEl.value = other;
+      }
+      const dist = haversineMiles(HUB_MAP[originEl.value], HUB_MAP[destEl.value]);
+      const mins = Math.round((35 + dist / 8.0) / 5) * 5;
+      distanceEl.value = Math.max(50, dist);
+      durationEl.value = Math.max(45, mins);
+    }
+
+    originEl.addEventListener("change", () => updateRouteDefaults("origin"));
+    destEl.addEventListener("change", () => updateRouteDefaults("dest"));
+
     originEl.value = "ORD";
     destEl.value = "EWR";
+    updateRouteDefaults("origin");
 
-    const DEFAULT_API_URL = "https://fdnku2mgoi.execute-api.us-east-1.amazonaws.com/predict";
-    const apiInput = document.getElementById("apiUrl");
-    apiInput.value = localStorage.getItem("fdf_api_url") || DEFAULT_API_URL;
-
-    const depDefault = new Date(Date.now() + 3 * 3600 * 1000);
-    depDefault.setMinutes(0, 0, 0);
     const pad = (n) => String(n).padStart(2, "0");
-    document.getElementById("depLocal").value =
-      `${depDefault.getFullYear()}-${pad(depDefault.getMonth() + 1)}-${pad(depDefault.getDate())}T${pad(depDefault.getHours())}:${pad(depDefault.getMinutes())}`;
+    const toLocalInput = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+    const now = new Date();
+    const minDep = new Date(now.getTime());
+    const maxDep = new Date(now.getTime() + 45 * 3600 * 1000);
+    const defaultDep = new Date(now.getTime() + 3 * 3600 * 1000);
+    defaultDep.setMinutes(0, 0, 0);
+    depEl.min = toLocalInput(minDep);
+    depEl.max = toLocalInput(maxDep);
+    depEl.value = toLocalInput(defaultDep);
+
+    document.querySelectorAll(".chip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        originEl.value = btn.dataset.origin;
+        destEl.value = btn.dataset.dest;
+        carrierEl.value = btn.dataset.carrier;
+        updateRouteDefaults("origin");
+      });
+    });
+
+    async function callPredict(payload, attempt = 1) {
+      const resp = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (resp.status === 503 && attempt === 1) {
+        return callPredict(payload, 2);
+      }
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || data.message || `HTTP ${resp.status}`);
+      return data;
+    }
 
     document.getElementById("predict-form").addEventListener("submit", async (e) => {
       e.preventDefault();
       const btn = document.getElementById("submitBtn");
       const errBox = document.getElementById("errorBox");
       const resCard = document.getElementById("resultCard");
+      const statusNote = document.getElementById("statusNote");
       errBox.style.display = "none";
 
-      const url = apiInput.value.trim();
-      localStorage.setItem("fdf_api_url", url);
+      if (originEl.value === destEl.value) {
+        errBox.textContent = "Origin and destination hubs must be different.";
+        errBox.style.display = "block";
+        return;
+      }
 
       const payload = {
         origin_airport: originEl.value,
         dest_airport: destEl.value,
-        carrier: document.getElementById("carrier").value,
-        scheduled_dep_utc: new Date(document.getElementById("depLocal").value).toISOString(),
-        scheduled_duration_min: Number(document.getElementById("duration").value),
-        distance_miles: Number(document.getElementById("distance").value),
+        carrier: carrierEl.value,
+        scheduled_dep_utc: new Date(depEl.value).toISOString(),
+        scheduled_duration_min: Number(durationEl.value),
+        distance_miles: Number(distanceEl.value),
       };
 
       btn.disabled = true;
       btn.textContent = "Predicting...";
+      const coldTimer = setTimeout(() => {
+        statusNote.textContent = "Waking up serverless model after idle (first request takes ~5-15s)...";
+        statusNote.style.display = "block";
+      }, 1500);
+
       try {
-        const resp = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const data = await resp.json();
-        if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+        const data = await callPredict(payload);
 
         const badge = document.getElementById("statusBadge");
         const bucket = data.predicted_bucket || (data.is_delayed ? "delayed" : "on_time");
@@ -248,6 +363,8 @@
         errBox.textContent = err.message;
         errBox.style.display = "block";
       } finally {
+        clearTimeout(coldTimer);
+        statusNote.style.display = "none";
         btn.disabled = false;
         btn.textContent = "Predict Delay";
       }

@@ -63,7 +63,8 @@ Resources:
     Properties:
       CorsConfiguration:
         AllowOrigins:
-          - "*"
+          - "https://vikramadityarajput.github.io"
+          - "http://localhost:8765"
         AllowMethods:
           - POST
           - OPTIONS
@@ -79,7 +80,7 @@ Resources:
       PackageType: Image
       Architectures:
         - arm64
-      MemorySize: 1024
+      MemorySize: 1769
       Timeout: 30
       Environment:
         Variables:
